@@ -28,7 +28,7 @@ mqtt_client.tls_set(cert_reqs=ssl.CERT_NONE)
 mqtt_client.tls_insecure_set(True)  # ไม่ตรวจสอบใบรับรอง (เฉพาะตอนทดสอบเท่านั้น)
 
 # เชื่อมต่อ MQTT Broker (HiveMQ Cloud)
-mqtt_client.connect("b4e111cfdc1c405ba7d73351938d025f.s1.eu.hivemq.cloud", 8883, 60)
+mqtt_client.connect("b4e111cfdc1c405ba7d73351938d025f.s1.eu.hivemq.cloud", 8883, 5000)
 mqtt_client.loop_start()
 
 @app.route("/")
