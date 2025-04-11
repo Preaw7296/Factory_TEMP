@@ -1,44 +1,129 @@
-from flask import Flask, render_template, jsonify
-import paho.mqtt.client as mqtt
-import ssl
-import json
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Factory Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.1/dist/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-size: cover;
+            background-position: center center;
+        }
 
-app = Flask(__name__)
-mqtt_data = {"temperature": 0, "humidity": 0, "pm25": 0}
+        .gauge-container {
+            width: 300px;
+            display: inline-block;
+            margin: 20px;
+        }
 
-# MQTT setup
-def on_connect(client, userdata, flags, rc):
-    print("Connected to MQTT with result code", rc)
-    client.subscribe("factory/sensor")  # เปลี่ยน topic ตามที่ ESP32 publish
+        #chartContainer {
+            width: 70%;
+            margin: auto;
+        }
 
-def on_message(client, userdata, msg):
-    global mqtt_data
-    try:
-        mqtt_data = json.loads(msg.payload.decode())
-        print("Received:", mqtt_data)
-    except Exception as e:
-        print("Failed to decode MQTT message:", e)
+        .val-text {
+            font-size: 20px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Smart Factory Dashboard</h1>
 
-mqtt_client = mqtt.Client()
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
+    <div class="gauge-container">
+        <h3>Temperature</h3>
+        <div id="tempVal" class="val-text">-- °C</div>
+    </div>
 
-# ตั้งค่า TLS สำหรับเชื่อมต่อแบบปลอดภัย
-mqtt_client.tls_set(cert_reqs=ssl.CERT_NONE)
-mqtt_client.tls_insecure_set(True)  # ไม่ตรวจสอบใบรับรอง (เฉพาะตอนทดสอบเท่านั้น)
+    <div class="gauge-container">
+        <h3>Humidity</h3>
+        <div id="humVal" class="val-text">-- %</div>
+    </div>
 
-# เชื่อมต่อ MQTT Broker (HiveMQ Cloud)
-mqtt_client.connect("b4e111cfdc1c405ba7d73351938d025f.s1.eu.hivemq.cloud", 8883, 60)
-mqtt_client.loop_start()
+    <div class="gauge-container">
+        <h3>PM2.5</h3>
+        <div id="pmVal" class="val-text">-- µg/m³</div>
+    </div>
 
-@app.route("/")
-def dashboard():
-    return render_template("index.html")
+    <div id="chartContainer">
+        <canvas id="sensorChart"></canvas>
+    </div>
 
-@app.route("/data")
-def data():
-    return jsonify(mqtt_data)
+    <script>
+        const socket = io.connect('http://localhost:5000'); // เชื่อมต่อกับเซิร์ฟเวอร์
 
-# ไม่ต้องใช้ app.run() เมื่อใช้ Gunicorn
-if __name__ == "__main__":
-    pass
+        // ตัวแปรสำหรับเก็บข้อมูลล่าสุดที่รับจากเซ็นเซอร์
+        let temperatureData = [];
+        let humidityData = [];
+        let pmData = [];
+
+        // สร้างกราฟด้วย Chart.js
+        const ctx = document.getElementById('sensorChart').getContext('2d');
+        const sensorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],  // เวลา หรือช่วงเวลาที่ข้อมูลถูกบันทึก
+                datasets: [{
+                    label: 'Temperature (°C)',
+                    data: temperatureData,
+                    borderColor: 'rgb(255, 99, 132)',
+                    fill: false
+                }, {
+                    label: 'Humidity (%)',
+                    data: humidityData,
+                    borderColor: 'rgb(54, 162, 235)',
+                    fill: false
+                }, {
+                    label: 'PM2.5 (µg/m³)',
+                    data: pmData,
+                    borderColor: 'rgb(75, 192, 192)',
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        // เมื่อรับข้อมูลจาก server ผ่าน socket.io
+        socket.on('sensor_data', (data) => {
+            const temp = data.temperature || 0;
+            const hum = data.humidity || 0;
+            const pm = data.pm25 || 0;
+            const time = Date.now();
+
+            // แสดงผลข้อมูลในตัวเลข
+            document.getElementById("tempVal").innerText = `${temp} °C`;
+            document.getElementById("humVal").innerText = `${hum} %`;
+            document.getElementById("pmVal").innerText = `${pm} µg/m³`;
+
+            // เพิ่มข้อมูลใหม่ในกราฟ
+            sensorChart.data.labels.push(time);  // เพิ่มเวลา
+            sensorChart.data.datasets[0].data.push(temp);  // อุณหภูมิ
+            sensorChart.data.datasets[1].data.push(hum);  // ความชื้น
+            sensorChart.data.datasets[2].data.push(pm);   // PM2.5
+
+            // กำหนดให้กราฟไม่เก็บข้อมูลเกินไป (รักษาขนาดของกราฟให้เหมาะสม)
+            if (sensorChart.data.labels.length > 50) {
+                sensorChart.data.labels.shift();
+                sensorChart.data.datasets.forEach(dataset => dataset.data.shift());
+            }
+
+            sensorChart.update();
+        });
+    </script>
+</body>
+</html>
